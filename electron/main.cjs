@@ -36,7 +36,9 @@ function createOverlayWindows(){
   const {screen}=require("electron");const bounds=screen.getPrimaryDisplay().bounds;
   crossWindow=new BrowserWindow({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height,frame:false,transparent:true,backgroundColor:"#00000000",show:false,alwaysOnTop:true,skipTaskbar:true,focusable:false,hasShadow:false,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});
   crossWindow.setBackgroundColor("#00000000");
-  crossWindow.setIgnoreMouseEvents(true,{forward:true});
+  crossWindow.setIgnoreMouseEvents(true);
+  crossWindow.setAlwaysOnTop(true,"floating");
+  crossWindow.setOpacity(1);
   crossWindow.loadURL(dev?"http://127.0.0.1:5173/?overlay=cross":"file://"+path.join(__dirname,"../dist/index.html")+"?overlay=cross");
   quickWindow=new BrowserWindow({width:430,height:560,frame:false,transparent:true,show:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});
   quickWindow.loadURL(dev?"http://127.0.0.1:5173/?overlay=quick":"file://"+path.join(__dirname,"../dist/index.html")+"?overlay=quick");
@@ -47,9 +49,15 @@ function positionCrosshairOverlay(){
   const {screen}=require("electron");
   const point=screen.getCursorScreenPoint();
   const display=screen.getDisplayNearestPoint(point)||screen.getPrimaryDisplay();
+  const b=display.bounds;
+  const size=240;
   crossWindow.setFullScreen(false);
-  crossWindow.setBounds(display.bounds);
-  crossWindow.setFullScreen(true);
+  crossWindow.setBounds({
+    x:Math.round(b.x+(b.width-size)/2),
+    y:Math.round(b.y+(b.height-size)/2),
+    width:size,
+    height:size
+  });
 }
 function toggleQuick(){if(!quickWindow)return;quickWindow.isVisible()?quickWindow.hide():quickWindow.show();}
 function createWindow(){win=new BrowserWindow({width:1450,height:940,minWidth:1100,minHeight:720,backgroundColor:"#080812",title:"VANTAFPS",autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});if(dev)win.loadURL("http://127.0.0.1:5173");else win.loadFile(path.join(__dirname,"../dist/index.html"));}
