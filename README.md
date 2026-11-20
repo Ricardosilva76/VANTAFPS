@@ -15,29 +15,29 @@ npm run dist
 ```
 
 ## Current implementation
-- Neon React/Electron interface with Dashboard, Color & Vibrance, Resolution, Crosshair, Game Profiles, Performance and Settings.
+- Neon React/Electron interface: Dashboard, Color & Vibrance, Resolution, Crosshair, Game Profiles, Performance and Settings.
 - NVIDIA GPU/driver detection via Windows WMI.
-- Windows resolution mode enumeration and validation with ChangeDisplaySettingsEx.
-- Per-process watcher: applies a selected display mode when the configured process starts and requests restoration when it exits.
-- Color preset controls and a visual preview; custom crosshair design preview.
-- No game-file edits, injection or memory access.
+- Windows display mode enumeration and validation with ChangeDisplaySettingsEx.
+- Per-process game watcher: applies a display mode when a configured process starts and requests restoration when it exits.
+- Color preset UI and crosshair design preview.
+- No game file editing, injection or memory access.
 
 ## Important limitations
-- Color sliders currently save/preview a VANTAFPS profile. They do not control NVIDIA Digital Vibrance, NVIDIA Freestyle or in-game post-processing yet.
-- Crosshair is a visual designer preview. A proper transparent click-through always-on-top overlay is still to be built.
-- Resolution restoration is attempted when the monitored process closes and on normal application shutdown. Forced termination, crash, reboot or display-driver reset can interrupt restoration; this must be hardened before public release.
-- NVIDIA Freestyle/Game Filters are controlled by NVIDIA and available only to supported games. VANTAFPS will not inject into unsupported games or attempt to bypass anti-cheat.
+- Color sliders currently save and preview a VANTAFPS profile; they do not change NVIDIA Digital Vibrance or Freestyle/Game Filters.
+- Crosshair is currently a designer preview, not a separate always-on-top click-through overlay.
+- Resolution restoration is attempted on process exit and normal app close; forced termination, crash, power loss or reboot can interrupt restoration. Add a recovery watchdog and safe rollback before public release.
+- NVIDIA Freestyle/Game Filters are controlled by NVIDIA and only available in supported games. VANTAFPS does not force unsupported titles.
 
 ## NVIDIA reference
-NVIDIA explains that Freestyle is driver-integrated post-processing and a supported-game requirement means the current title may not be supported:
+NVIDIA's support page explains that Freestyle is integrated into the driver and only works in supported games:
 https://nvidia.custhelp.com/app/answers/detail/a_id/5349/kw/discord
 
 ## Commercial release checklist
-Before selling or publicly distributing:
-- Test Windows 10/11 display mode changes/restoration on different GPUs, displays, multi-monitor and mixed-refresh configurations.
-- Implement a crash-safe recovery/watchdog mechanism and a user-visible failsafe.
-- Validate NVIDIA control paths and any API/SDK licensing or redistribution requirements.
-- Implement the actual desktop-wide Digital Vibrance control where supported, and handle unsupported driver versions gracefully.
-- Build a true DPI-aware transparent crosshair overlay, hotkeys, multi-monitor controls and anti-cheat compatibility tests.
-- Add automated tests, privacy policy, EULA, support process, signed installers, upgrade/uninstall tests and a security review.
-- Avoid implying that VANTAFPS is endorsed by NVIDIA; it is an independent product.
+Before selling:
+- Test display-mode changes/restoration on Windows 10/11, multiple GPUs, monitors, resolutions and mixed refresh.
+- Implement a crash-safe recovery watchdog and emergency restore path.
+- Validate supported NVIDIA control methods and SDK/API licensing/redistribution conditions.
+- Implement actual desktop Digital Vibrance control where supported; fail gracefully elsewhere.
+- Implement a true DPI-aware, click-through crosshair overlay and test compatibility/anti-cheat requirements.
+- Add unit/integration tests, privacy policy, EULA, license and third-party notices, support process, signed installer, upgrades and uninstaller tests.
+- Do not imply NVIDIA endorsement; VANTAFPS is an independent product.
