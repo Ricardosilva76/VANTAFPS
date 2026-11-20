@@ -1,5 +1,5 @@
-const {app,BrowserWindow,ipcMain}=require("electron");const path=require("node:path");const {execFile}=require("node:child_process");
-let win,watch=null,original=null,busy=false;const dev=!app.isPackaged;
+const {app,BrowserWindow,ipcMain,globalShortcut}=require("electron");const path=require("node:path");const {execFile}=require("node:child_process");
+let win,watch=null,original=null,busy=false;let crossWindow=null,quickWindow=null;const dev=!app.isPackaged;
 const runPS=script=>new Promise((resolve,reject)=>execFile("powershell.exe",["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",script],{windowsHide:true,timeout:18000,maxBuffer:2*1024*1024},(e,o,err)=>e?reject(new Error((err||e.message).trim())):resolve(String(o||"").trim())));
 const displayPS=String.raw`
 Add-Type -TypeDefinition @"
@@ -32,7 +32,51 @@ async function restore(){if(!original)return;const m=original;original=null;try{
 async function stopWatch(restoreNow=true){if(watch)clearInterval(watch);watch=null;if(restoreNow)await restore();return true;}
 async function startWatch(profile){await stopWatch(false);if(!profile?.processName)throw Error("Indica o executável do jogo.");const proc=path.basename(profile.processName).replace(/\.exe$/i,"").replace(/'/g,"''");let seen=false;
 watch=setInterval(async()=>{if(busy)return;busy=true;try{const state=await runPS(`if(Get-Process -Name '${proc}' -ErrorAction SilentlyContinue){"YES"}else{"NO"}`);if(state==="YES"&&!seen){seen=true;const old=await getDisplay();original={width:old.width,height:old.height,hz:old.hz};await setDisplay(profile);emit({type:"changed",profile,original});}else if(state!=="YES"&&seen){seen=false;await restore();emit({type:"closed"});}}catch(e){emit({type:"error",message:e.message});clearInterval(watch);watch=null;}finally{busy=false;}},1250);emit({type:"watching",profile});return true;}
+function createOverlayWindows(){
+  const {screen}=require("electron");const bounds=screen.getPrimaryDisplay().bounds;
+  crossWindow=new BrowserWindow({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height,frame:false,transparent:true,backgroundColor:"#00000000",show:false,alwaysOnTop:true,skipTaskbar:true,focusable:false,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  crossWindow.setIgnoreMouseEvents(true,{forward:true});
+  crossWindow.loadURL(dev?"http://127.0.0.1:5173/?overlay=cross":"file://"+path.join(__dirname,"../dist/index.html")+"?overlay=cross");
+  quickWindow=new BrowserWindow({width:430,height:560,frame:false,transparent:true,show:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  quickWindow.loadURL(dev?"http://127.0.0.1:5173/?overlay=quick":"file://"+path.join(__dirname,"../dist/index.html")+"?overlay=quick");
+  quickWindow.on("blur",()=>quickWindow.hide());
+}
+function toggleQuick(){if(!quickWindow)return;quickWindow.isVisible()?quickWindow.hide():quickWindow.show();}
 function createWindow(){win=new BrowserWindow({width:1450,height:940,minWidth:1100,minHeight:720,backgroundColor:"#080812",title:"VANTAFPS",autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});if(dev)win.loadURL("http://127.0.0.1:5173");else win.loadFile(path.join(__dirname,"../dist/index.html"));}
+ipcMain.handle("color:apply",async(_e,col)=>{
+ const b=Number(col.brightness??100),ct=Number(col.contrast??100),g=Number(col.gamma??100);
+ const script=String.raw`
+Add-Type -TypeDefinition @"
+using System;using System.Runtime.InteropServices;
+public static class VantaColor {
+[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+[DllImport("gdi32.dll")] public static extern bool SetDeviceGammaRamp(IntPtr hDC, IntPtr lpRamp);
+[DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
+}
+"@
+$ptr=[Runtime.InteropServices.Marshal]::AllocHGlobal(1536);$arr=New-Object UInt16[] 768;
+for($ch=0;$ch -lt 3;$ch++){for($i=0;$i -lt 256;$i++){ $x=$i/255.0;$y=[Math]::Pow($x,100.0/__G__);$y=(($y-0.5)*(__CT__/100.0)+0.5)*(__B__/100.0);$y=[Math]::Max(0,[Math]::Min(1,$y));$arr[$ch*256+$i]=[UInt16]([Math]::Round($y*65535));}}
+[Runtime.InteropServices.Marshal]::Copy($arr,0,$ptr,768);$dc=[VantaColor]::GetDC([IntPtr]::Zero);$ok=[VantaColor]::SetDeviceGammaRamp($dc,$ptr);[VantaColor]::ReleaseDC([IntPtr]::Zero,$dc)|Out-Null;[Runtime.InteropServices.Marshal]::FreeHGlobal($ptr);if(!$ok){throw "O Windows/driver não permite aplicar a LUT de cor."};"OK"`.replace("__G__",String(g)).replace("__CT__",String(ct)).replace("__B__",String(b));
+ await runPS(script);return true;
+});
+ipcMain.handle("color:reset",async()=>{
+ const script=String.raw`
+Add-Type -TypeDefinition @"
+using System;using System.Runtime.InteropServices;
+public static class VantaColorReset {
+[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+[DllImport("gdi32.dll")] public static extern bool SetDeviceGammaRamp(IntPtr hDC, IntPtr lpRamp);
+[DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
+}
+"@
+$ptr=[Runtime.InteropServices.Marshal]::AllocHGlobal(1536);$arr=New-Object UInt16[] 768;
+for($ch=0;$ch -lt 3;$ch++){for($i=0;$i -lt 256;$i++){$arr[$ch*256+$i]=[UInt16]([Math]::Round(($i/255.0)*65535))}}
+[Runtime.InteropServices.Marshal]::Copy($arr,0,$ptr,768);$dc=[VantaColorReset]::GetDC([IntPtr]::Zero);$ok=[VantaColorReset]::SetDeviceGammaRamp($dc,$ptr);[VantaColorReset]::ReleaseDC([IntPtr]::Zero,$dc)|Out-Null;[Runtime.InteropServices.Marshal]::FreeHGlobal($ptr);if(!$ok){throw "Não foi possível restaurar as cores."};"OK"`;
+ await runPS(script);return true;
+});
+ipcMain.handle("overlay:crosshair",(_e,show)=>show?crossWindow?.show():crossWindow?.hide());
+ipcMain.handle("overlay:quick",()=>{if(quickWindow?.isVisible())quickWindow.hide();else quickWindow?.show();});
+ipcMain.handle("overlay:set-crosshair",(_e,x)=>crossWindow?.webContents.send("crosshair:set",x));
 ipcMain.handle("display:get",getDisplay);ipcMain.handle("display:set",(_e,m)=>setDisplay(m));ipcMain.handle("display:restore",restore);ipcMain.handle("game:watch",(_e,p)=>startWatch(p));ipcMain.handle("game:stop",()=>stopWatch(true));
 ipcMain.handle("nvidia:detect",async()=>{const raw=await runPS("Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion | ConvertTo-Json -Compress");let parsed=JSON.parse(raw||"[]");if(!Array.isArray(parsed))parsed=[parsed];return parsed.filter(x=>/NVIDIA/i.test(x.Name));});
-app.whenReady().then(createWindow);app.on("before-quit",()=>{if(watch)clearInterval(watch);if(original){const m=original;const script=displayPS+String.raw`$x=ReadDM -1;$x.dmPelsWidth=${m.width};$x.dmPelsHeight=${m.height};$x.dmDisplayFrequency=${m.hz};$x.dmFields=[VantaDM]::WIDTH -bor [VantaDM]::HEIGHT -bor [VantaDM]::FREQ;[VantaDM]::ChangeDisplaySettingsEx($null,[ref]$x,[IntPtr]::Zero,[VantaDM]::FULL,[IntPtr]::Zero)|Out-Null`;execFile("powershell.exe",["-NoProfile","-ExecutionPolicy","Bypass","-Command",script],{windowsHide:true});}});app.on("window-all-closed",()=>{if(process.platform!=="darwin")app.quit();});
+app.whenReady().then(()=>{globalShortcut.register("Alt+Z",()=>{if(quickWindow?.isVisible())quickWindow.hide();else quickWindow?.show();});createOverlayWindows();createWindow();});app.on("before-quit",()=>{if(watch)clearInterval(watch);if(original){const m=original;const script=displayPS+String.raw`$x=ReadDM -1;$x.dmPelsWidth=${m.width};$x.dmPelsHeight=${m.height};$x.dmDisplayFrequency=${m.hz};$x.dmFields=[VantaDM]::WIDTH -bor [VantaDM]::HEIGHT -bor [VantaDM]::FREQ;[VantaDM]::ChangeDisplaySettingsEx($null,[ref]$x,[IntPtr]::Zero,[VantaDM]::FULL,[IntPtr]::Zero)|Out-Null`;execFile("powershell.exe",["-NoProfile","-ExecutionPolicy","Bypass","-Command",script],{windowsHide:true});}});app.on("before-quit",()=>{try{globalShortcut.unregisterAll();}catch{};});app.on("window-all-closed",()=>{if(process.platform!=="darwin")app.quit();});
