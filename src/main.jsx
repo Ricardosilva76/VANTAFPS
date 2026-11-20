@@ -40,4 +40,5 @@ function Metric({icon:Icon,label,value,sub}){return <div className="metric panel
 function Slider({label,desc,value,min=0,max=200,suffix="%",onChange}){return <div className="slider"><div><b>{label}</b><output>{value}{suffix}</output></div>{desc&&<small>{desc}</small>}<input type="range" min={min} max={max} value={value} onChange={e=>onChange(e.target.value)} style={{"--progress":((value-min)/(max-min))*100+"%"}}/><div className="range-scale"><span>{min}{suffix}</span><span>{max}{suffix}</span></div></div>}
 function Toggle({value,onChange}){return <button type="button" className={"toggle "+(value?"on":"")} onClick={()=>onChange(!value)}><i/></button>}
 function Reticle({c}){return <div className="reticle" style={{"--color":c.color,"--size":c.size+"px","--thick":c.thickness+"px","--gap":c.gap+"px","--opacity":c.opacity/100}}><i/><b/><em/><strong/>{c.dot&&<span/>}</div>}
+if(overlayMode) document.body.classList.add("overlay-host");
 createRoot(document.getElementById("root")).render(overlayMode?<OverlayApp/>:<App/>);
