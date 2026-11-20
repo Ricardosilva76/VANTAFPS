@@ -42,6 +42,15 @@ function createOverlayWindows(){
   quickWindow.loadURL(dev?"http://127.0.0.1:5173/?overlay=quick":"file://"+path.join(__dirname,"../dist/index.html")+"?overlay=quick");
   quickWindow.on("blur",()=>quickWindow.hide());
 }
+function positionCrosshairOverlay(){
+  if(!crossWindow||crossWindow.isDestroyed())return;
+  const {screen}=require("electron");
+  const point=screen.getCursorScreenPoint();
+  const display=screen.getDisplayNearestPoint(point)||screen.getPrimaryDisplay();
+  crossWindow.setFullScreen(false);
+  crossWindow.setBounds(display.bounds);
+  crossWindow.setFullScreen(true);
+}
 function toggleQuick(){if(!quickWindow)return;quickWindow.isVisible()?quickWindow.hide():quickWindow.show();}
 function createWindow(){win=new BrowserWindow({width:1450,height:940,minWidth:1100,minHeight:720,backgroundColor:"#080812",title:"VANTAFPS",autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});if(dev)win.loadURL("http://127.0.0.1:5173");else win.loadFile(path.join(__dirname,"../dist/index.html"));}
 ipcMain.handle("color:apply",async(_e,col)=>{
@@ -125,7 +134,12 @@ public static class VantaNvReset {
 `;
  const raw=await runPS(script);return JSON.parse(raw);
 });
-ipcMain.handle("overlay:crosshair",(_e,show)=>show?crossWindow?.show():crossWindow?.hide());
+ipcMain.handle("overlay:crosshair",(_e,show)=>{
+  if(!crossWindow)return false;
+  if(show){positionCrosshairOverlay();crossWindow.showInactive();crossWindow.moveTop();}
+  else crossWindow.hide();
+  return true;
+});
 ipcMain.handle("overlay:quick",()=>{if(quickWindow?.isVisible())quickWindow.hide();else quickWindow?.show();});
 ipcMain.handle("overlay:set-crosshair",(_e,x)=>crossWindow?.webContents.send("crosshair:set",x));
 ipcMain.handle("display:get",getDisplay);ipcMain.handle("display:set",(_e,m)=>setDisplay(m));ipcMain.handle("display:restore",restore);ipcMain.handle("game:watch",(_e,p)=>startWatch(p));ipcMain.handle("game:stop",()=>stopWatch(true));
