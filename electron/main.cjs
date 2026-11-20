@@ -34,7 +34,8 @@ async function startWatch(profile){await stopWatch(false);if(!profile?.processNa
 watch=setInterval(async()=>{if(busy)return;busy=true;try{const state=await runPS(`if(Get-Process -Name '${proc}' -ErrorAction SilentlyContinue){"YES"}else{"NO"}`);if(state==="YES"&&!seen){seen=true;const old=await getDisplay();original={width:old.width,height:old.height,hz:old.hz};await setDisplay(profile);emit({type:"changed",profile,original});}else if(state!=="YES"&&seen){seen=false;await restore();emit({type:"closed"});}}catch(e){emit({type:"error",message:e.message});clearInterval(watch);watch=null;}finally{busy=false;}},1250);emit({type:"watching",profile});return true;}
 function createOverlayWindows(){
   const {screen}=require("electron");const bounds=screen.getPrimaryDisplay().bounds;
-  crossWindow=new BrowserWindow({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height,frame:false,transparent:true,backgroundColor:"#00000000",show:false,alwaysOnTop:true,skipTaskbar:true,focusable:false,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  crossWindow=new BrowserWindow({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height,frame:false,transparent:true,backgroundColor:"#00000000",show:false,alwaysOnTop:true,skipTaskbar:true,focusable:false,hasShadow:false,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  crossWindow.setBackgroundColor("#00000000");
   crossWindow.setIgnoreMouseEvents(true,{forward:true});
   crossWindow.loadURL(dev?"http://127.0.0.1:5173/?overlay=cross":"file://"+path.join(__dirname,"../dist/index.html")+"?overlay=cross");
   quickWindow=new BrowserWindow({width:430,height:560,frame:false,transparent:true,show:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});
