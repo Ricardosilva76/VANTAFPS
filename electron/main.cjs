@@ -45,35 +45,85 @@ function createOverlayWindows(){
 function toggleQuick(){if(!quickWindow)return;quickWindow.isVisible()?quickWindow.hide():quickWindow.show();}
 function createWindow(){win=new BrowserWindow({width:1450,height:940,minWidth:1100,minHeight:720,backgroundColor:"#080812",title:"VANTAFPS",autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,"preload.cjs"),contextIsolation:true,nodeIntegration:false,sandbox:true}});if(dev)win.loadURL("http://127.0.0.1:5173");else win.loadFile(path.join(__dirname,"../dist/index.html"));}
 ipcMain.handle("color:apply",async(_e,col)=>{
- const b=Number(col.brightness??100),ct=Number(col.contrast??100),g=Number(col.gamma??100);
+ const b=Math.max(0,Math.min(200,Number(col.brightness??100))),ct=Math.max(0,Math.min(200,Number(col.contrast??100))),g=Math.max(1,Math.min(200,Number(col.gamma??100)));
+ const vib=Math.max(0,Math.min(200,Number(col.vibrance??100)));
  const script=String.raw`
 Add-Type -TypeDefinition @"
 using System;using System.Runtime.InteropServices;
 public static class VantaColor {
-[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
-[DllImport("gdi32.dll")] public static extern bool SetDeviceGammaRamp(IntPtr hDC, IntPtr lpRamp);
-[DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr CreateDC(string driver,string device,string output,IntPtr init);
+ [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr dc);
+ [DllImport("gdi32.dll")] public static extern bool SetDeviceGammaRamp(IntPtr dc,IntPtr ramp);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern bool EnumDisplayDevices(string device,uint index,ref DISPLAY_DEVICE data,uint flags);
+ [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct DISPLAY_DEVICE { public int cb; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)] public string DeviceName; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=128)] public string DeviceString; public int StateFlags; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=128)] public string DeviceID; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=128)] public string DeviceKey; }
+ public static int Gamma(float brightness,float contrast,float gamma) {
+  int ok=0;
+  for(uint i=0;i<16;i++){ var d=new DISPLAY_DEVICE();d.cb=Marshal.SizeOf(typeof(DISPLAY_DEVICE));if(!EnumDisplayDevices(null,i,ref d,0)) break;if((d.StateFlags&1)==0) continue;
+   IntPtr dc=CreateDC(null,d.DeviceName,null,IntPtr.Zero);if(dc==IntPtr.Zero) continue;
+   IntPtr p=Marshal.AllocHGlobal(1536);var a=new ushort[768];
+   for(int ch=0;ch<3;ch++)for(int n=0;n<256;n++){double x=n/255.0;double y=Math.Pow(x,100.0/gamma);y=((y-.5)*(contrast/100.0)+.5)*(brightness/100.0);y=Math.Max(0,Math.Min(1,y));a[ch*256+n]=(ushort)Math.Round(y*65535);}
+   Marshal.Copy(a,0,p,768);if(SetDeviceGammaRamp(dc,p))ok++;Marshal.FreeHGlobal(p);DeleteDC(dc);
+  } return ok;
+ }
+ public static int Reset(){return Gamma(100,100,100);}
 }
 "@
-$ptr=[Runtime.InteropServices.Marshal]::AllocHGlobal(1536);$arr=New-Object UInt16[] 768;
-for($ch=0;$ch -lt 3;$ch++){for($i=0;$i -lt 256;$i++){ $x=$i/255.0;$y=[Math]::Pow($x,100.0/__G__);$y=(($y-0.5)*(__CT__/100.0)+0.5)*(__B__/100.0);$y=[Math]::Max(0,[Math]::Min(1,$y));$arr[$ch*256+$i]=[UInt16]([Math]::Round($y*65535));}}
-[Runtime.InteropServices.Marshal]::Copy($arr,0,$ptr,768);$dc=[VantaColor]::GetDC([IntPtr]::Zero);$ok=[VantaColor]::SetDeviceGammaRamp($dc,$ptr);[VantaColor]::ReleaseDC([IntPtr]::Zero,$dc)|Out-Null;[Runtime.InteropServices.Marshal]::FreeHGlobal($ptr);if(!$ok){throw "O Windows/driver não permite aplicar a LUT de cor."};"OK"`.replace("__G__",String(g)).replace("__CT__",String(ct)).replace("__B__",String(b));
- await runPS(script);return true;
+$gammaOk=[VantaColor]::Gamma(__B__,__CT__,__G__)
+$nvOk=0
+try {
+ Add-Type -TypeDefinition @"
+using System;using System.Runtime.InteropServices;
+public static class VantaNv {
+ [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int Init();
+ [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int EnumDisplay(uint index,out IntPtr handle);
+ [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int SetDvc(IntPtr handle,uint output,uint level);
+ [DllImport("nvapi64.dll",CallingConvention=CallingConvention.Cdecl,EntryPoint="nvapi_QueryInterface")] static extern IntPtr Q(uint id);
+ public static int Set(uint level){
+  var init=Marshal.GetDelegateForFunctionPointer<Init>(Q(0x0150E828));int st=init();if(st!=0)return 0;
+  var en=Marshal.GetDelegateForFunctionPointer<EnumDisplay>(Q(0x9ABDD40));var set=Marshal.GetDelegateForFunctionPointer<SetDvc>(Q(0x172409B4));int ok=0;
+  for(uint i=0;i<16;i++){IntPtr h;st=en(i,out h);if(st!=0)break;if(h==IntPtr.Zero)continue;if(set(h,0,level)==0)ok++;}
+  return ok;
+ }
+}
+"@
+ $level=[Math]::Max(0,[Math]::Min(100,[Math]::Round(__V__/2.0)))
+ $nvOk=[VantaNv]::Set([uint32]$level)
+} catch {}
+if($gammaOk -eq 0 -and $nvOk -eq 0){throw "O driver não permite alterar a cor neste modo de ecrã. Se estiveres em HDR, desliga HDR no Windows e testa novamente."}
+[pscustomobject]@{gamma=$gammaOk;nvidiaVibrance=$nvOk}|ConvertTo-Json -Compress
+`.replace("__G__",String(g)).replace("__CT__",String(ct)).replace("__B__",String(b)).replace("__V__",String(vib));
+ const raw=await runPS(script);return JSON.parse(raw);
 });
 ipcMain.handle("color:reset",async()=>{
  const script=String.raw`
 Add-Type -TypeDefinition @"
 using System;using System.Runtime.InteropServices;
 public static class VantaColorReset {
-[DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
-[DllImport("gdi32.dll")] public static extern bool SetDeviceGammaRamp(IntPtr hDC, IntPtr lpRamp);
-[DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr CreateDC(string driver,string device,string output,IntPtr init);
+ [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr dc);
+ [DllImport("gdi32.dll")] public static extern bool SetDeviceGammaRamp(IntPtr dc,IntPtr ramp);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern bool EnumDisplayDevices(string device,uint index,ref DISPLAY_DEVICE data,uint flags);
+ [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct DISPLAY_DEVICE { public int cb; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)] public string DeviceName; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=128)] public string DeviceString; public int StateFlags; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=128)] public string DeviceID; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=128)] public string DeviceKey; }
+ public static int Reset(){int ok=0;for(uint i=0;i<16;i++){var d=new DISPLAY_DEVICE();d.cb=Marshal.SizeOf(typeof(DISPLAY_DEVICE));if(!EnumDisplayDevices(null,i,ref d,0))break;if((d.StateFlags&1)==0)continue;IntPtr dc=CreateDC(null,d.DeviceName,null,IntPtr.Zero);if(dc==IntPtr.Zero)continue;IntPtr p=Marshal.AllocHGlobal(1536);var a=new ushort[768];for(int ch=0;ch<3;ch++)for(int n=0;n<256;n++)a[ch*256+n]=(ushort)Math.Round((n/255.0)*65535);Marshal.Copy(a,0,p,768);if(SetDeviceGammaRamp(dc,p))ok++;Marshal.FreeHGlobal(p);DeleteDC(dc);}return ok;}
 }
 "@
-$ptr=[Runtime.InteropServices.Marshal]::AllocHGlobal(1536);$arr=New-Object UInt16[] 768;
-for($ch=0;$ch -lt 3;$ch++){for($i=0;$i -lt 256;$i++){$arr[$ch*256+$i]=[UInt16]([Math]::Round(($i/255.0)*65535))}}
-[Runtime.InteropServices.Marshal]::Copy($arr,0,$ptr,768);$dc=[VantaColorReset]::GetDC([IntPtr]::Zero);$ok=[VantaColorReset]::SetDeviceGammaRamp($dc,$ptr);[VantaColorReset]::ReleaseDC([IntPtr]::Zero,$dc)|Out-Null;[Runtime.InteropServices.Marshal]::FreeHGlobal($ptr);if(!$ok){throw "Não foi possível restaurar as cores."};"OK"`;
- await runPS(script);return true;
+$gammaOk=[VantaColorReset]::Reset()
+try {
+ Add-Type -TypeDefinition @"
+using System;using System.Runtime.InteropServices;
+public static class VantaNvReset {
+ [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int Init();
+ [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int EnumDisplay(uint index,out IntPtr handle);
+ [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int SetDvc(IntPtr handle,uint output,uint level);
+ [DllImport("nvapi64.dll",CallingConvention=CallingConvention.Cdecl,EntryPoint="nvapi_QueryInterface")] static extern IntPtr Q(uint id);
+ public static int Reset(){var init=Marshal.GetDelegateForFunctionPointer<Init>(Q(0x0150E828));if(init()!=0)return 0;var en=Marshal.GetDelegateForFunctionPointer<EnumDisplay>(Q(0x9ABDD40));var set=Marshal.GetDelegateForFunctionPointer<SetDvc>(Q(0x172409B4));int ok=0;for(uint i=0;i<16;i++){IntPtr h;if(en(i,out h)!=0)break;if(h!=IntPtr.Zero&&set(h,0,50)==0)ok++;}return ok;}
+}
+"@
+ $nvOk=[VantaNvReset]::Reset()
+} catch {}
+[pscustomobject]@{gamma=$gammaOk;nvidiaVibrance=$nvOk}|ConvertTo-Json -Compress
+`;
+ const raw=await runPS(script);return JSON.parse(raw);
 });
 ipcMain.handle("overlay:crosshair",(_e,show)=>show?crossWindow?.show():crossWindow?.hide());
 ipcMain.handle("overlay:quick",()=>{if(quickWindow?.isVisible())quickWindow.hide();else quickWindow?.show();});
